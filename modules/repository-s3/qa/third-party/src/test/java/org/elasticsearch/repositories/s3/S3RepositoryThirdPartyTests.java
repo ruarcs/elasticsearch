@@ -40,11 +40,13 @@ import org.elasticsearch.repositories.RepositoriesService;
 import org.elasticsearch.repositories.SnapshotMetrics;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.test.ClusterServiceUtils;
+import org.elasticsearch.test.fixtures.minio.AwsEmulatorS3Fixture;
 import org.elasticsearch.test.fixtures.minio.MinioTestContainer;
 import org.elasticsearch.test.fixtures.testcontainers.TestContainersThreadFilter;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.junit.ClassRule;
+import org.junit.rules.TestRule;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -68,13 +70,23 @@ import static org.hamcrest.Matchers.not;
 public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTestCase {
     static final boolean USE_FIXTURE = Booleans.parseBoolean(System.getProperty("tests.use.fixture", "true"));
 
+    private static final boolean USE_AWS_EMULATOR = Booleans.parseBoolean(System.getProperty("tests.use.aws.emulator", "false"));
+
+    private static final String EMULATOR_BUCKET = "third-party";
+
+    private static final MinioTestContainer minio = USE_AWS_EMULATOR
+        ? null
+        : new MinioTestContainer(
+            USE_FIXTURE,
+            System.getProperty("test.s3.account"),
+            System.getProperty("test.s3.key"),
+            System.getProperty("test.s3.bucket")
+        );
+
+    private static final AwsEmulatorS3Fixture emulator = USE_AWS_EMULATOR ? new AwsEmulatorS3Fixture(EMULATOR_BUCKET) : null;
+
     @ClassRule
-    public static MinioTestContainer minio = new MinioTestContainer(
-        USE_FIXTURE,
-        System.getProperty("test.s3.account"),
-        System.getProperty("test.s3.key"),
-        System.getProperty("test.s3.bucket")
-    );
+    public static final TestRule s3Fixture = USE_AWS_EMULATOR ? emulator : minio;
 
     @Override
     protected Collection<Class<? extends Plugin>> getPlugins() {
@@ -89,8 +101,14 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
         assertThat(System.getProperty("test.s3.region"), not(blankOrNullString()));
 
         MockSecureSettings secureSettings = new MockSecureSettings();
-        secureSettings.setString("s3.client.default.access_key", System.getProperty("test.s3.account"));
-        secureSettings.setString("s3.client.default.secret_key", System.getProperty("test.s3.key"));
+        if (USE_AWS_EMULATOR) {
+            // Gradle still supplies the MinIO literals. This run's emulator issued its own key.
+            secureSettings.setString("s3.client.default.access_key", emulator.getAccessKey());
+            secureSettings.setString("s3.client.default.secret_key", emulator.getSecretKey());
+        } else {
+            secureSettings.setString("s3.client.default.access_key", System.getProperty("test.s3.account"));
+            secureSettings.setString("s3.client.default.secret_key", System.getProperty("test.s3.key"));
+        }
         return secureSettings;
     }
 
@@ -115,12 +133,26 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
         return settings.build();
     }
 
+    /**
+     * Returns the endpoint the fixture is listening on. The emulator address is HTTPS, so this path must not use MinIO's HTTP address.
+     */
+    private static String s3Endpoint() {
+        return USE_AWS_EMULATOR ? emulator.getAddress() : minio.getAddress();
+    }
+
+    /**
+     * Returns the bucket this suite writes to. The emulator path uses its own bucket. MinIO uses the bucket Gradle set.
+     */
+    private static String s3Bucket() {
+        return USE_AWS_EMULATOR ? EMULATOR_BUCKET : System.getProperty("test.s3.bucket");
+    }
+
     @Override
     protected void createRepository(String repoName) {
         Settings.Builder settings = Settings.builder()
-            .put("bucket", System.getProperty("test.s3.bucket"))
+            .put("bucket", s3Bucket())
             .put("base_path", System.getProperty("test.s3.base", "testpath"));
-        final String endpoint = USE_FIXTURE ? minio.getAddress() : System.getProperty("test.s3.endpoint");
+        final String endpoint = USE_FIXTURE ? s3Endpoint() : System.getProperty("test.s3.endpoint");
         if (endpoint != null) {
             settings.put("endpoint", endpoint);
         } else {
@@ -346,7 +378,7 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
         );
 
         final var repoSettings = Settings.builder()
-            .put("bucket", System.getProperty("test.s3.bucket"))
+            .put("bucket", s3Bucket())
             .put("base_path", System.getProperty("test.s3.base", "testpath"))
             .put(S3Repository.DATA_STORAGE_CLASS_SETTING.getKey(), dataStorageClass)
             .put(S3Repository.METADATA_STORAGE_CLASS_SETTING.getKey(), metadataStorageClass)
