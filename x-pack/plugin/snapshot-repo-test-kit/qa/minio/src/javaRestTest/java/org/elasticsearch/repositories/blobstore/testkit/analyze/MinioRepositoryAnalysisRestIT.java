@@ -24,7 +24,7 @@ public class MinioRepositoryAnalysisRestIT extends AbstractRepositoryAnalysisRes
 
     private static final boolean USE_AWS_EMULATOR = Booleans.parseBoolean(System.getProperty("tests.use.aws.emulator", "false"));
 
-    private static final String EMULATOR_BUCKET = "analysis-1mb";
+    private static final String EMULATOR_BUCKET = "analysis-10mb";
 
     private static final TestRule s3Fixture = USE_AWS_EMULATOR
         ? new AwsEmulatorS3Fixture(EMULATOR_BUCKET)
