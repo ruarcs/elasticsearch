@@ -9,13 +9,8 @@
 
 package org.elasticsearch.repositories.s3;
 
-import com.carrotsearch.randomizedtesting.annotations.ThreadLeakFilters;
-
-import org.elasticsearch.core.Booleans;
 import org.elasticsearch.test.cluster.ElasticsearchCluster;
 import org.elasticsearch.test.fixtures.minio.AwsEmulatorS3Fixture;
-import org.elasticsearch.test.fixtures.minio.MinioTestContainer;
-import org.elasticsearch.test.fixtures.testcontainers.TestContainersThreadFilter;
 import org.junit.ClassRule;
 import org.junit.rules.ExternalResource;
 import org.junit.rules.RuleChain;
@@ -25,85 +20,55 @@ import java.util.function.Supplier;
 
 import static fixture.aws.DynamicIdentifierSupplier.testClassIdentifierSupplier;
 
-@ThreadLeakFilters(filters = { TestContainersThreadFilter.class })
 public class RepositoryS3MinioBasicCredentialsRestIT extends AbstractRepositoryS3RestTestCase {
 
-    private static final String PREFIX = getIdentifierPrefix("RepositoryS3MinioBasicCredentialsRestIT");
-    private static final String ACCESS_KEY = PREFIX + "access-key";
-    private static final String SECRET_KEY = PREFIX + "secret-key";
     private static final String CLIENT = "minio_client";
 
     private static final Supplier<String> bucketSupplier = testClassIdentifierSupplier("bucket");
     private static final Supplier<String> basePathSupplier = testClassIdentifierSupplier("base_path");
 
-    private static final boolean USE_AWS_EMULATOR = Booleans.parseBoolean(System.getProperty("tests.use.aws.emulator", "false"));
+    private static final LazyEmulatorFixture emulator = new LazyEmulatorFixture();
 
-    private static final LazyMinioFixture minioFixture = new LazyMinioFixture();
-
-    public static ElasticsearchCluster cluster = buildCluster();
-
-    private static ElasticsearchCluster buildCluster() {
-        var builder = ElasticsearchCluster.local()
-            .module("repository-s3")
-            .setting("s3.client." + CLIENT + ".endpoint", minioFixture::getAddress);
-        if (USE_AWS_EMULATOR) {
-            // The endpoint is an IP, so the client cannot guess a region from it. Leaving the region unset logs a critical deprecation.
-            builder.keystore("s3.client." + CLIENT + ".access_key", minioFixture::getAccessKey)
-                .keystore("s3.client." + CLIENT + ".secret_key", minioFixture::getSecretKey)
-                .setting("s3.client." + CLIENT + ".region", "us-east-1");
-        } else {
-            builder.keystore("s3.client." + CLIENT + ".access_key", ACCESS_KEY)
-                .keystore("s3.client." + CLIENT + ".secret_key", SECRET_KEY);
-        }
-        return builder.build();
-    }
+    public static ElasticsearchCluster cluster = ElasticsearchCluster.local()
+        .module("repository-s3")
+        .setting("s3.client." + CLIENT + ".endpoint", emulator::getAddress)
+        // The endpoint is an IP, so the client cannot guess a region from it. Leaving the region unset logs a critical deprecation.
+        .keystore("s3.client." + CLIENT + ".access_key", emulator::getAccessKey)
+        .keystore("s3.client." + CLIENT + ".secret_key", emulator::getSecretKey)
+        .setting("s3.client." + CLIENT + ".region", "us-east-1")
+        .build();
 
     @ClassRule
-    public static TestRule ruleChain = RuleChain.outerRule(minioFixture).around(cluster);
+    public static TestRule ruleChain = RuleChain.outerRule(emulator).around(cluster);
 
-    private static class LazyMinioFixture extends ExternalResource {
-        private MinioTestContainer minioTestContainer;
+    /**
+     * The bucket name comes from the test class, which is not available while this class is loading.
+     * The emulator client is opened in {@link #before()}.
+     */
+    private static class LazyEmulatorFixture extends ExternalResource {
         private AwsEmulatorS3Fixture emulator;
 
         @Override
         protected void before() throws Throwable {
-            if (USE_AWS_EMULATOR) {
-                emulator = new AwsEmulatorS3Fixture(bucketSupplier.get());
-                emulator.before();
-                return;
-            }
-            minioTestContainer = new MinioTestContainer(true, ACCESS_KEY, SECRET_KEY, bucketSupplier.get());
-            minioTestContainer.start();
+            emulator = new AwsEmulatorS3Fixture(bucketSupplier.get());
+            emulator.before();
         }
 
         @Override
         protected void after() {
-            if (USE_AWS_EMULATOR) {
-                emulator.after();
-                return;
-            }
-            minioTestContainer.stop();
+            emulator.after();
         }
 
         String getAddress() {
-            if (USE_AWS_EMULATOR) {
-                return emulator.getAddress();
-            }
-            return minioTestContainer.getAddress();
+            return emulator.getAddress();
         }
 
         String getAccessKey() {
-            if (USE_AWS_EMULATOR) {
-                return emulator.getAccessKey();
-            }
-            return ACCESS_KEY;
+            return emulator.getAccessKey();
         }
 
         String getSecretKey() {
-            if (USE_AWS_EMULATOR) {
-                return emulator.getSecretKey();
-            }
-            return SECRET_KEY;
+            return emulator.getSecretKey();
         }
     }
 

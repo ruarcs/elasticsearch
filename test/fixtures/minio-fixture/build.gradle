@@ -7,9 +7,8 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 apply plugin: 'elasticsearch.java'
-apply plugin: 'elasticsearch.docker-image-cache'
 
-description = 'Fixture for MinIO Storage service'
+description = 'Fixture for the local AWS emulator'
 
 configurations.all {
   exclude group: 'org.hamcrest', module: 'hamcrest-core'
@@ -17,13 +16,6 @@ configurations.all {
 dependencies {
   testImplementation (project(':test:framework'))
   api "junit:junit:${versions.junit4}"
-  api project(':test:fixtures:testcontainer-utils')
-  api("org.testcontainers:testcontainers:${versions.testcontainer}") {
-    transitive = false
-  }
-  api("com.carrotsearch.randomizedtesting:randomizedtesting-runner:${versions.randomizedrunner}"){
-    transitive = false
-  }
 
   // AwsEmulatorS3Fixture opens its own S3 client. Suites only call the fixture methods.
   // api, not implementation: a suite that does not already depend on the SDK still has to load these

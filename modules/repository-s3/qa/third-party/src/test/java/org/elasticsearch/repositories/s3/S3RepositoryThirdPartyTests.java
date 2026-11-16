@@ -16,8 +16,6 @@ import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.StorageClass;
 
-import com.carrotsearch.randomizedtesting.annotations.ThreadLeakFilters;
-
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.metadata.RepositoryMetadata;
@@ -41,11 +39,10 @@ import org.elasticsearch.repositories.SnapshotMetrics;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.test.ClusterServiceUtils;
 import org.elasticsearch.test.fixtures.minio.AwsEmulatorS3Fixture;
-import org.elasticsearch.test.fixtures.minio.MinioTestContainer;
-import org.elasticsearch.test.fixtures.testcontainers.TestContainersThreadFilter;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.junit.ClassRule;
+import org.junit.rules.ExternalResource;
 import org.junit.rules.TestRule;
 
 import java.io.IOException;
@@ -66,27 +63,15 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 
-@ThreadLeakFilters(filters = { TestContainersThreadFilter.class })
 public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTestCase {
     static final boolean USE_FIXTURE = Booleans.parseBoolean(System.getProperty("tests.use.fixture", "true"));
 
-    private static final boolean USE_AWS_EMULATOR = Booleans.parseBoolean(System.getProperty("tests.use.aws.emulator", "false"));
-
     private static final String EMULATOR_BUCKET = "third-party";
 
-    private static final MinioTestContainer minio = USE_AWS_EMULATOR
-        ? null
-        : new MinioTestContainer(
-            USE_FIXTURE,
-            System.getProperty("test.s3.account"),
-            System.getProperty("test.s3.key"),
-            System.getProperty("test.s3.bucket")
-        );
-
-    private static final AwsEmulatorS3Fixture emulator = USE_AWS_EMULATOR ? new AwsEmulatorS3Fixture(EMULATOR_BUCKET) : null;
+    private static final AwsEmulatorS3Fixture emulator = USE_FIXTURE ? new AwsEmulatorS3Fixture(EMULATOR_BUCKET) : null;
 
     @ClassRule
-    public static final TestRule s3Fixture = USE_AWS_EMULATOR ? emulator : minio;
+    public static final TestRule s3Fixture = USE_FIXTURE ? emulator : new ExternalResource() {};
 
     @Override
     protected Collection<Class<? extends Plugin>> getPlugins() {
@@ -101,8 +86,7 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
         assertThat(System.getProperty("test.s3.region"), not(blankOrNullString()));
 
         MockSecureSettings secureSettings = new MockSecureSettings();
-        if (USE_AWS_EMULATOR) {
-            // Gradle still supplies the MinIO literals. This run's emulator issued its own key.
+        if (USE_FIXTURE) {
             secureSettings.setString("s3.client.default.access_key", emulator.getAccessKey());
             secureSettings.setString("s3.client.default.secret_key", emulator.getSecretKey());
         } else {
@@ -134,17 +118,17 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
     }
 
     /**
-     * Returns the endpoint the fixture is listening on. The emulator address is HTTPS, so this path must not use MinIO's HTTP address.
+     * Returns the endpoint the fixture is listening on. The address already includes the https scheme.
      */
     private static String s3Endpoint() {
-        return USE_AWS_EMULATOR ? emulator.getAddress() : minio.getAddress();
+        return emulator.getAddress();
     }
 
     /**
-     * Returns the bucket this suite writes to. The emulator path uses its own bucket. MinIO uses the bucket Gradle set.
+     * Returns the bucket this suite writes to. The fixture uses its own bucket. A real S3 run uses the bucket Gradle set.
      */
     private static String s3Bucket() {
-        return USE_AWS_EMULATOR ? EMULATOR_BUCKET : System.getProperty("test.s3.bucket");
+        return USE_FIXTURE ? EMULATOR_BUCKET : System.getProperty("test.s3.bucket");
     }
 
     @Override
@@ -360,11 +344,11 @@ public class S3RepositoryThirdPartyTests extends AbstractThirdPartyRepositoryTes
     /**
      * Verifies that {@code data_storage_class} / {@code metadata_storage_class} and the legacy {@code storage_class} fallback are applied to
      * the correct uploads. We configure three distinct storage classes, write blobs with each {@link OperationPurpose} via the single-part,
-     * multi-part and server-side copy paths, and read the storage class back from the object metadata. The MinIO fixture does not honor
+     * multi-part and server-side copy paths, and read the storage class back from the object metadata. The emulator fixture does not honor
      * storage classes, so this only runs against a real CSP endpoint with credentials supplied via system properties.
      */
     public void testStorageClassPerOperationPurpose() throws IOException {
-        assumeFalse("storage classes are not honored by the MinIO test fixture", USE_FIXTURE);
+        assumeFalse("storage classes are not honored by the emulator fixture", USE_FIXTURE);
 
         final var storageClasses = shuffledList(List.of("standard_ia", "onezone_ia", "intelligent_tiering"));
         final var dataStorageClass = storageClasses.get(0);

@@ -65,7 +65,6 @@ dependencies {
   testImplementation project(':test:fixtures:tls-utils')
 
   internalClusterTestImplementation project(':test:fixtures:aws-fixture-utils')
-  internalClusterTestImplementation project(':test:fixtures:minio-fixture')
   internalClusterTestRuntimeOnly "org.slf4j:slf4j-simple:${versions.slf4j}"
 
   yamlRestTestImplementation project(':modules:repository-s3')
